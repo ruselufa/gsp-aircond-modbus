@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Modbus WebSocket Test - Множественные устройства</title>
+		<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				max-width: 1200px;
+				margin: 0 auto;
+				padding: 20px;
+			}
+			.status {
+				padding: 10px;
+				margin: 10px 0;
+				border-radius: 5px;
+			}
+			.connected {
+				background-color: #d4edda;
+				color: #155724;
+			}
+			.disconnected {
+				background-color: #f8d7da;
+				color: #721c24;
+			}
+			.devices-container {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+				gap: 20px;
+				margin-top: 20px;
+			}
+			.device-card {
+				background-color: #f8f9fa;
+				padding: 20px;
+				border-radius: 10px;
+				border: 2px solid #dee2e6;
+				box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+			}
+			.device-card.online {
+				border-color: #28a745;
+				background-color: #f8fff9;
+			}
+			.device-card.offline {
+				border-color: #dc3545;
+				background-color: #fff8f8;
+			}
+			.device-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				margin-bottom: 15px;
+				padding-bottom: 10px;
+				border-bottom: 1px solid #dee2e6;
+			}
+			.device-title {
+				font-size: 1.2em;
+				font-weight: bold;
+				margin: 0;
+			}
+			.device-status {
+				padding: 4px 8px;
+				border-radius: 4px;
+				font-size: 0.8em;
+				font-weight: bold;
+			}
+			.device-status.online {
+				background-color: #28a745;
+				color: white;
+			}
+			.device-status.offline {
+				background-color: #dc3545;
+				color: white;
+			}
+			.device-data {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 10px;
+			}
+			.data-item {
+				padding: 8px;
+				background-color: white;
+				border-radius: 5px;
+				border: 1px solid #dee2e6;
+			}
+			.data-label {
+				font-weight: bold;
+				color: #495057;
+				font-size: 0.9em;
+			}
+			.data-value {
+				color: #212529;
+				margin-top: 2px;
+			}
+			.errors-section {
+				margin-top: 15px;
+				padding-top: 15px;
+				border-top: 1px solid #dee2e6;
+			}
+			.errors-title {
+				font-weight: bold;
+				margin-bottom: 10px;
+				color: #dc3545;
+			}
+			.error-item {
+				padding: 4px 8px;
+				margin: 2px 0;
+				border-radius: 3px;
+				font-size: 0.85em;
+			}
+			.error-item.active {
+				background-color: #f8d7da;
+				color: #721c24;
+			}
+			.error-item.inactive {
+				background-color: #d4edda;
+				color: #155724;
+			}
+			.controls {
+				margin: 20px 0;
+				text-align: center;
+			}
+			button {
+				padding: 10px 20px;
+				margin: 5px;
+				border: none;
+				border-radius: 5px;
+				cursor: pointer;
+				font-size: 1em;
+			}
+			.subscribe {
+				background-color: #007bff;
+				color: white;
+			}
+			.unsubscribe {
+				background-color: #6c757d;
+				color: white;
+			}
+			.error {
+				background-color: #f8d7da;
+				color: #721c24;
+				padding: 10px;
+				border-radius: 5px;
+				margin: 10px 0;
+			}
+			.client-count {
+				text-align: center;
+				padding: 10px;
+				background-color: #e9ecef;
+				border-radius: 5px;
+				margin: 10px 0;
+				font-weight: bold;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Modbus WebSocket Test - Множественные устройства</h1>
+		<div id="status" class="status disconnected">Статус: Отключено</div>
+		<div class="controls">
+			<button class="subscribe" onclick="subscribe()">Подписаться</button>
+			<button class="unsubscribe" onclick="unsubscribe()">Отписаться</button>
+		</div>
+		<div id="client-count" class="client-count">Подключенные клиенты: 0</div>
+		<div id="devices-container" class="devices-container">
+			<div class="device-card offline">
+				<div class="device-header">
+					<h3 class="device-title">Кондиционер 5</h3>
+					<span class="device-status offline">Офлайн</span>
+				</div>
+				<div class="device-data">
+					<div class="data-item">
+						<div class="data-label">Режим</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Включен</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Уставка температуры</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Скорость вентилятора</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воздуха</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воды</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус помпы</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус клапана</div>
+						<div class="data-value">-</div>
+					</div>
+				</div>
+				<div class="errors-section">
+					<div class="errors-title">Ошибки:</div>
+					<div class="error-item inactive">Ошибка датчика температуры</div>
+					<div class="error-item inactive">Ошибка датчика воды 1</div>
+					<div class="error-item inactive">Ошибка датчика воды 2</div>
+					<div class="error-item inactive">Ошибка скорости вентилятора</div>
+					<div class="error-item inactive">Ошибка помпы</div>
+				</div>
+			</div>
+			<div class="device-card offline">
+				<div class="device-header">
+					<h3 class="device-title">Кондиционер 6</h3>
+					<span class="device-status offline">Офлайн</span>
+				</div>
+				<div class="device-data">
+					<div class="data-item">
+						<div class="data-label">Режим</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Включен</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Уставка температуры</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Скорость вентилятора</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воздуха</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воды</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус помпы</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус клапана</div>
+						<div class="data-value">-</div>
+					</div>
+				</div>
+				<div class="errors-section">
+					<div class="errors-title">Ошибки:</div>
+					<div class="error-item inactive">Ошибка датчика температуры</div>
+					<div class="error-item inactive">Ошибка датчика воды 1</div>
+					<div class="error-item inactive">Ошибка датчика воды 2</div>
+					<div class="error-item inactive">Ошибка скорости вентилятора</div>
+					<div class="error-item inactive">Ошибка помпы</div>
+				</div>
+			</div>
+			<div class="device-card offline">
+				<div class="device-header">
+					<h3 class="device-title">Кондиционер 7</h3>
+					<span class="device-status offline">Офлайн</span>
+				</div>
+				<div class="device-data">
+					<div class="data-item">
+						<div class="data-label">Режим</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Включен</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Уставка температуры</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Скорость вентилятора</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воздуха</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Температура воды</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус помпы</div>
+						<div class="data-value">-</div>
+					</div>
+					<div class="data-item">
+						<div class="data-label">Статус клапана</div>
+						<div class="data-value">-</div>
+					</div>
+				</div>
+				<div class="errors-section">
+					<div class="errors-title">Ошибки:</div>
+					<div class="error-item inactive">Ошибка датчика температуры</div>
+					<div class="error-item inactive">Ошибка датчика воды 1</div>
+					<div class="error-item inactive">Ошибка датчика воды 2</div>
+					<div class="error-item inactive">Ошибка скорости вентилятора</div>
+					<div class="error-item inactive">Ошибка помпы</div>
+				</div>
+			</div>
+		</div>
+		<div id="errors"></div>
+		<script>
+			const socket = io('http://localhost:3001', {
+				transports: ['websocket', 'polling'],
+				withCredentials: true,
+			});
+			let isSubscribed = false;
+			socket.on('connect', () => {
+				document.getElementById('status').className = 'status connected';
+				document.getElementById('status').textContent = 'Статус: Подключено';
+			});
+			socket.on('disconnect', () => {
+				document.getElementById('status').className = 'status disconnected';
+				document.getElementById('status').textContent = 'Статус: Отключено';
+			});
+			socket.on('devicesState', (data) => {
+				document.getElementById('client-count').textContent =
+					`Подключенные клиенты: ${data.clientCount}`;
+				data.devices.forEach((device) => updateDeviceCard(device));
+			});
+			socket.on('deviceState', (data) => {
+				document.getElementById('client-count').textContent =
+					`Подключенные клиенты: ${data.clientCount}`;
+				updateDeviceCard(data);
+			});
+			socket.on('error', (data) => {
+				document.getElementById('errors').innerHTML =
+					`<div class="error">Ошибка: ${data.message}</div>`;
+			});
+			function subscribe() {
+				if (!isSubscribed) {
+					socket.emit('subscribe');
+					isSubscribed = true;
+				}
+			}
+			function unsubscribe() {
+				if (isSubscribed) {
+					socket.emit('unsubscribe');
+					isSubscribed = false;
+				}
+			}
+			function updateDeviceCard(device) {
+				const deviceCards = document.querySelectorAll('.device-card');
+				let targetCard = null;
+				for (let card of deviceCards) {
+					const title = card.querySelector('.device-title');
+					if (title && title.textContent.includes(device.id.replace('AC_', ''))) {
+						targetCard = card;
+						break;
+					}
+				}
+				if (!targetCard) return;
+				const statusElement = targetCard.querySelector('.device-status');
+				if (device.isOnline) {
+					targetCard.className = 'device-card online';
+					statusElement.className = 'device-status online';
+					statusElement.textContent = 'Онлайн';
+				} else {
+					targetCard.className = 'device-card offline';
+					statusElement.className = 'device-status offline';
+					statusElement.textContent = 'Офлайн';
+				}
+				const dataItems = targetCard.querySelectorAll('.data-item');
+				dataItems.forEach((item) => {
+					const label = item.querySelector('.data-label').textContent;
+					const valueElement = item.querySelector('.data-value');
+					switch (label) {
+						case 'Режим':
+							valueElement.textContent = device.mode || '-';
+							break;
+						case 'Включен':
+							valueElement.textContent = device.isOn ? 'Да' : 'Нет';
+							break;
+						case 'Уставка температуры':
+							valueElement.textContent = device.setTemperature ? `${device.setTemperature}°C` : '-';
+							break;
+						case 'Скорость вентилятора':
+							valueElement.textContent = device.fanSpeed || '-';
+							break;
+						case 'Температура воздуха':
+							valueElement.textContent = device.temperature ? `${device.temperature}°C` : '-';
+							break;
+						case 'Температура воды':
+							valueElement.textContent = device.waterTemperature
+								? `${device.waterTemperature}°C`
+								: '-';
+							break;
+						case 'Статус помпы':
+							valueElement.textContent = device.pumpStatus ? 'Включена' : 'Выключена';
+							break;
+						case 'Статус клапана':
+							valueElement.textContent = device.valveStatus ? 'Открыт' : 'Закрыт';
+							break;
+					}
+				});
+				const errorItems = targetCard.querySelectorAll('.error-item');
+				if (errorItems.length >= 5) {
+					errorItems[0].className = device.errors.tempSensorError
+						? 'error-item active'
+						: 'error-item inactive';
+					errorItems[1].className = device.errors.waterTempSensor1Error
+						? 'error-item active'
+						: 'error-item inactive';
+					errorItems[2].className = device.errors.waterTempSensor2Error
+						? 'error-item active'
+						: 'error-item inactive';
+					errorItems[3].className = device.errors.fanSpeedError
+						? 'error-item active'
+						: 'error-item inactive';
+					errorItems[4].className = device.errors.pumpError
+						? 'error-item active'
+						: 'error-item inactive';
+				}
+			}
+			window.onload = () => {
+				setTimeout(subscribe, 1000);
+			};
+		</script>
+	</body>
+</html>
