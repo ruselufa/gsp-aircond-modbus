@@ -141,30 +141,39 @@ export class ModbusService {
 
 				this.logger.log(`[${deviceId}] Читаем режим работы...`);
 				const mode = await this.getOperatingMode(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем уставку температуры...`);
 				const temp = await this.getTemperatureSetpoint(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем скорость вентилятора...`);
 				const speed = await this.getFanSpeed(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем температуру воздуха...`);
 				const airTemp = await this.getAirTemperature(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем температуру воды...`);
 				const waterTemp = await this.getWaterTemperature(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем статус помпы...`);
 				const pumpStatus = await this.getPumpStatus(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем статус клапана...`);
 				const valveStatus = await this.getValveStatus(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем ошибки...`);
 				const errors = await this.getErrors(deviceId);
+				await this.timeout(200);
 
 				this.logger.log(`[${deviceId}] Читаем состояние защиты...`);
 				const protection = await this.getProtectionState(deviceId);
+				await this.timeout(200);
 
 				const updatedState: DeviceState = {
 					...this.devicesState.get(deviceId)!,
@@ -200,10 +209,15 @@ export class ModbusService {
 			}
 
 			this.logger.log(`=== Конец опроса устройства ${deviceId} ===`);
-			await new Promise((res) => setTimeout(res, 500)); // увеличиваем задержку между опросами
+			await this.timeout(500); // увеличиваем задержку между опросами
 		}
 
 		this.modbusGateway.broadcastDevicesState(updatedDevices);
+	}
+
+	// Timeout promise function
+	private async timeout(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	// --- Методы чтения с подробной диагностикой ---
