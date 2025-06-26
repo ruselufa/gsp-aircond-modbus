@@ -1,12 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ModbusService } from './modbus/modbus.service';
-import { ModbusController } from './modbus/modbus.controller';
-import { ModbusGateway } from './modbus/modbus.gateway';
+import { ModbusModule } from './modbus/modbus.module';
 
 @Module({
-	imports: [ScheduleModule.forRoot()],
-	controllers: [ModbusController],
-	providers: [ModbusService, ModbusGateway],
+	imports: [ScheduleModule.forRoot(), ModbusModule],
 })
 export class AppModule {}
