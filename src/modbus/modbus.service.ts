@@ -172,14 +172,16 @@ export class ModbusService {
 	private async executeModbusOperation<T>(
 		deviceId: number,
 		operation: () => Promise<T>,
-		operationName: string
+		operationName: string,
 	): Promise<T | null> {
 		for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
 			try {
 				// Переключаемся на устройство
 				const switched = await this.switchToDevice(deviceId);
 				if (!switched) {
-					this.logger.warn(`[${deviceId}] Не удалось переключиться на устройство для ${operationName}`);
+					this.logger.warn(
+						`[${deviceId}] Не удалось переключиться на устройство для ${operationName}`,
+					);
 					return null;
 				}
 
@@ -200,12 +202,14 @@ export class ModbusService {
 				}
 
 				return result;
-
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error);
 
 				// Анализируем тип ошибки
-				if (errorMessage.includes('Unexpected data error') || errorMessage.includes('expected address')) {
+				if (
+					errorMessage.includes('Unexpected data error') ||
+					errorMessage.includes('expected address')
+				) {
 					this.masterStats.deviceConflicts++;
 					this.logger.warn(`[${deviceId}] Конфликт устройств в ${operationName}: ${errorMessage}`);
 				} else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
@@ -219,7 +223,9 @@ export class ModbusService {
 
 				// Если это последняя попытка, логируем ошибку
 				if (attempt === this.MAX_RETRIES) {
-					this.logger.error(`[${deviceId}] ${operationName} не удалось после ${this.MAX_RETRIES + 1} попыток`);
+					this.logger.error(
+						`[${deviceId}] ${operationName} не удалось после ${this.MAX_RETRIES + 1} попыток`,
+					);
 					return null;
 				}
 
@@ -267,7 +273,9 @@ export class ModbusService {
 			const request = this.requestQueue.shift();
 			if (!request) return;
 
-			this.logger.debug(`🔧 Обрабатываем запрос: ${request.type} register ${request.register} device ${request.deviceId} (${request.priority} priority)`);
+			this.logger.debug(
+				`🔧 Обрабатываем запрос: ${request.type} register ${request.register} device ${request.deviceId} (${request.priority} priority)`,
+			);
 
 			const startTime = Date.now();
 			let success = false;
@@ -277,7 +285,7 @@ export class ModbusService {
 					const result = await this.executeModbusOperation(
 						request.deviceId,
 						() => this.client.readHoldingRegisters(request.register, 1),
-						`чтение регистра ${request.register}`
+						`чтение регистра ${request.register}`,
 					);
 					success = result !== null;
 					if (success && result) {
@@ -287,18 +295,16 @@ export class ModbusService {
 					const result = await this.executeModbusOperation(
 						request.deviceId,
 						() => this.client.writeRegister(request.register, request.value!),
-						`запись регистра ${request.register}`
+						`запись регистра ${request.register}`,
 					);
 					success = result !== null;
 					if (success) {
 						this.logger.debug(`✏️ Успешно записан регистр ${request.register}: ${request.value}`);
 					}
 				}
-
 			} catch (error) {
 				this.logger.error(`❌ Ошибка обработки запроса: ${error}`);
 			}
-
 		} finally {
 			this.isProcessingQueue = false;
 		}
@@ -314,7 +320,9 @@ export class ModbusService {
 		if (success) {
 			this.masterStats.successfulRequests++;
 			// Обновляем среднее время ответа
-			const totalTime = this.masterStats.averageResponseTime * (this.masterStats.successfulRequests - 1) + responseTime;
+			const totalTime =
+				this.masterStats.averageResponseTime * (this.masterStats.successfulRequests - 1) +
+				responseTime;
 			this.masterStats.averageResponseTime = totalTime / this.masterStats.successfulRequests;
 		} else {
 			this.masterStats.failedRequests++;
@@ -334,7 +342,9 @@ export class ModbusService {
 		};
 
 		this.requestQueue.push(queueRequest);
-		this.logger.debug(`📋 Добавлен запрос в очередь: ${id} (${request.type} ${request.register} device ${request.deviceId})`);
+		this.logger.debug(
+			`📋 Добавлен запрос в очередь: ${id} (${request.type} ${request.register} device ${request.deviceId})`,
+		);
 		return id;
 	}
 
@@ -347,7 +357,9 @@ export class ModbusService {
 		try {
 			const switched = await this.switchToDevice(deviceId);
 			if (!switched) {
-				this.logger.warn(`[${deviceId}] Не удалось переключиться на устройство для пакетного чтения`);
+				this.logger.warn(
+					`[${deviceId}] Не удалось переключиться на устройство для пакетного чтения`,
+				);
 				return results;
 			}
 
@@ -357,7 +369,10 @@ export class ModbusService {
 			const groups: number[][] = [];
 
 			for (let i = 0; i < sortedRegisters.length; i++) {
-				if (currentGroup.length === 0 || sortedRegisters[i] === currentGroup[currentGroup.length - 1] + 1) {
+				if (
+					currentGroup.length === 0 ||
+					sortedRegisters[i] === currentGroup[currentGroup.length - 1] + 1
+				) {
 					currentGroup.push(sortedRegisters[i]);
 				} else {
 					groups.push([...currentGroup]);
@@ -376,7 +391,7 @@ export class ModbusService {
 				const result = await this.executeModbusOperation(
 					deviceId,
 					() => this.client.readHoldingRegisters(startRegister, count),
-					`пакетное чтение регистров ${startRegister}-${startRegister + count - 1}`
+					`пакетное чтение регистров ${startRegister}-${startRegister + count - 1}`,
 				);
 
 				if (result) {
@@ -385,7 +400,6 @@ export class ModbusService {
 					});
 				}
 			}
-
 		} catch (error) {
 			this.logger.error(`[${deviceId}] Ошибка пакетного чтения: ${error}`);
 		}
@@ -397,9 +411,10 @@ export class ModbusService {
 	 * Получение статистики работы master'а
 	 */
 	getMasterStats() {
-		const successRate = this.masterStats.totalRequests > 0
-			? (this.masterStats.successfulRequests / this.masterStats.totalRequests * 100).toFixed(2)
-			: '0.00';
+		const successRate =
+			this.masterStats.totalRequests > 0
+				? ((this.masterStats.successfulRequests / this.masterStats.totalRequests) * 100).toFixed(2)
+				: '0.00';
 
 		return {
 			...this.masterStats,
@@ -418,7 +433,6 @@ export class ModbusService {
 		try {
 			this.logger.log(`[${deviceId}] Проверка доступности устройства...`);
 
-<<<<<<< HEAD
 			// Пытаемся прочитать простой регистр для проверки связи с таймаутом
 			const res: ModbusResponse = (await Promise.race([
 				this.client.readHoldingRegisters(1601, 1),
@@ -430,23 +444,6 @@ export class ModbusService {
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			this.logger.error(`[${deviceId}] Устройство недоступно: ${errorMessage}`);
-=======
-			const result = await this.executeModbusOperation(
-				deviceId,
-				() => this.client.readHoldingRegisters(1601, 1),
-				'проверка доступности'
-			);
-
-			if (result) {
-				this.logger.log(`[${deviceId}] Устройство доступно, получен ответ: ${result.data[0]}`);
-				return true;
-			} else {
-				this.logger.warn(`[${deviceId}] Устройство недоступно`);
-				return false;
-			}
-		} catch (error) {
-			this.logger.error(`[${deviceId}] Ошибка проверки доступности: ${error}`);
->>>>>>> 886ecec4b8810f308f980a248017f3e78bfa9c99
 			return false;
 		}
 	}
@@ -471,91 +468,13 @@ export class ModbusService {
 		this.isPolling = true; // Устанавливаем флаг
 		const updatedDevices: DeviceState[] = [];
 
-<<<<<<< HEAD
 		this.logger.log(`Начинаем опрос устройств: ${this.deviceIds.join(', ')}`);
-=======
-		for (const deviceId of this.deviceIds) {
-			this.logger.log(`=== Начало опроса устройства ${deviceId} ===`);
-
-			// Сначала проверяем доступность устройства
-			const isAvailable = await this.checkDeviceAvailability(deviceId);
-			if (!isAvailable) {
-				this.logger.log(`[${deviceId}] Устройство недоступно, пропускаем опрос`);
-				const offlineState = {
-					...this.devicesState.get(deviceId)!,
-					isOnline: false,
-				};
-				this.devicesState.set(deviceId, offlineState);
-				updatedDevices.push(offlineState);
-				continue;
-			}
-
-			try {
-				// Переключаемся на устройство
-				const switched = await this.switchToDevice(deviceId);
-				if (!switched) {
-					this.logger.warn(`[${deviceId}] Не удалось переключиться на устройство, пропускаем`);
-					continue;
-				}
-
-				// Читаем все параметры с retry
-				const mode = await this.getOperatingMode(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const temp = await this.getTemperatureSetpoint(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const speed = await this.getFanSpeed(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const airTemp = await this.getAirTemperature(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const waterTemp = await this.getWaterTemperature(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const pumpStatus = await this.getPumpStatus(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const valveStatus = await this.getValveStatus(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const errors = await this.getErrors(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const protection = await this.getProtectionState(deviceId);
-				await this.timeout(this.REQUEST_DELAY);
-
-				const updatedState: DeviceState = {
-					...this.devicesState.get(deviceId)!,
-					isOnline: true,
-					mode: mode !== null ? this.convertMode(mode) : '',
-					isOn: mode !== null && mode > 0,
-					setTemperature: temp || 0,
-					fanSpeed: speed || 0,
-					temperature: airTemp || 0,
-					waterTemperature: waterTemp || 0,
-					pumpStatus: pumpStatus || false,
-					valveStatus: valveStatus || false,
-					errors: errors || this.devicesState.get(deviceId)!.errors,
-					protectionState: protection || 0,
-				};
-
-				this.devicesState.set(deviceId, updatedState);
-				updatedDevices.push(updatedState);
->>>>>>> 886ecec4b8810f308f980a248017f3e78bfa9c99
 
 		try {
 			for (const deviceId of this.deviceIds) {
 				this.logger.log(`=== Начало опроса устройства ${deviceId} ===`);
 				this.logger.log(
-<<<<<<< HEAD
 					`[${deviceId}] Обработка устройства ${deviceId} из списка: ${this.deviceIds.join(', ')}`,
-=======
-					`[${deviceId}] Успешно: режим=${mode}, уставка=${temp}, скорость=${speed}, ` +
-					`темп.воздуха=${airTemp}, темп.воды=${waterTemp}, помпа=${pumpStatus}, клапан=${valveStatus}, ` +
-					`ошибки=${JSON.stringify(errors)}, защита=${protection}`,
->>>>>>> 886ecec4b8810f308f980a248017f3e78bfa9c99
 				);
 
 				// Сначала проверяем доступность устройства
@@ -674,8 +593,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Режим работы: ${res.data[0]}`);
 				return res;
 			},
-			'чтение режима работы'
-		).then(result => result?.data[0] ?? null);
+			'чтение режима работы',
+		).then((result) => result?.data[0] ?? null);
 	}
 
 	async getTemperatureSetpoint(deviceId: number): Promise<number | null> {
@@ -687,8 +606,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Уставка температуры: ${res.data[0]}`);
 				return res;
 			},
-			'чтение уставки температуры'
-		).then(result => result?.data[0] ?? null);
+			'чтение уставки температуры',
+		).then((result) => result?.data[0] ?? null);
 	}
 
 	async getFanSpeed(deviceId: number): Promise<number | null> {
@@ -700,8 +619,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Скорость вентилятора: ${res.data[0]}`);
 				return res;
 			},
-			'чтение скорости вентилятора'
-		).then(result => result?.data[0] ?? null);
+			'чтение скорости вентилятора',
+		).then((result) => result?.data[0] ?? null);
 	}
 
 	async getAirTemperature(deviceId: number): Promise<number | null> {
@@ -714,8 +633,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Температура воздуха: ${temp}°C (raw: ${res.data[0]})`);
 				return { ...res, temp };
 			},
-			'чтение температуры воздуха'
-		).then(result => result?.temp ?? null);
+			'чтение температуры воздуха',
+		).then((result) => result?.temp ?? null);
 	}
 
 	async getWaterTemperature(deviceId: number): Promise<number | null> {
@@ -728,8 +647,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Температура воды: ${temp}°C (raw: ${res.data[0]})`);
 				return { ...res, temp };
 			},
-			'чтение температуры воды'
-		).then(result => result?.temp ?? null);
+			'чтение температуры воды',
+		).then((result) => result?.temp ?? null);
 	}
 
 	async getPumpStatus(deviceId: number): Promise<boolean | null> {
@@ -742,8 +661,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Статус помпы: ${status} (raw: ${res.data[0]})`);
 				return { ...res, status };
 			},
-			'чтение статуса помпы'
-		).then(result => result?.status ?? null);
+			'чтение статуса помпы',
+		).then((result) => result?.status ?? null);
 	}
 
 	async getValveStatus(deviceId: number): Promise<boolean | null> {
@@ -756,8 +675,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Статус клапана: ${status} (raw: ${res.data[0]})`);
 				return { ...res, status };
 			},
-			'чтение статуса клапана'
-		).then(result => result?.status ?? null);
+			'чтение статуса клапана',
+		).then((result) => result?.status ?? null);
 	}
 
 	async getErrors(deviceId: number): Promise<DeviceState['errors'] | null> {
@@ -776,8 +695,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Ошибки: ${JSON.stringify(errors)} (raw: ${res.data[0]})`);
 				return { ...res, errors };
 			},
-			'чтение ошибок'
-		).then(result => result?.errors ?? null);
+			'чтение ошибок',
+		).then((result) => result?.errors ?? null);
 	}
 
 	async getProtectionState(deviceId: number): Promise<number | null> {
@@ -789,8 +708,8 @@ export class ModbusService {
 				this.logger.debug(`[${deviceId}] Состояние защиты: ${res.data[0]}`);
 				return res;
 			},
-			'чтение состояния защиты'
-		).then(result => result?.data[0] ?? null);
+			'чтение состояния защиты',
+		).then((result) => result?.data[0] ?? null);
 	}
 
 	getCurrentDevicesState(): DeviceState[] {
@@ -856,7 +775,11 @@ export class ModbusService {
 	/**
 	 * Приоритетное чтение регистра через очередь
 	 */
-	async readRegisterWithPriority(deviceId: number, register: number, priority: 'high' | 'normal' | 'low' = 'normal'): Promise<number | null> {
+	async readRegisterWithPriority(
+		deviceId: number,
+		register: number,
+		priority: 'high' | 'normal' | 'low' = 'normal',
+	): Promise<number | null> {
 		return new Promise((resolve) => {
 			const requestId = this.addToQueue({
 				deviceId,
@@ -889,7 +812,12 @@ export class ModbusService {
 	/**
 	 * Приоритетная запись регистра через очередь
 	 */
-	async writeRegisterWithPriority(deviceId: number, register: number, value: number, priority: 'high' | 'normal' | 'low' = 'normal'): Promise<boolean> {
+	async writeRegisterWithPriority(
+		deviceId: number,
+		register: number,
+		value: number,
+		priority: 'high' | 'normal' | 'low' = 'normal',
+	): Promise<boolean> {
 		return new Promise((resolve) => {
 			const requestId = this.addToQueue({
 				deviceId,
@@ -933,7 +861,7 @@ export class ModbusService {
 			const writeResult = await this.executeModbusOperation(
 				deviceId,
 				() => this.client.writeRegister(1601, mode),
-				`запись режима работы ${mode}`
+				`запись режима работы ${mode}`,
 			);
 
 			if (!writeResult) {
@@ -953,7 +881,9 @@ export class ModbusService {
 
 				return true;
 			} else {
-				this.logger.error(`[${deviceId}] Ошибка подтверждения записи режима: ожидалось ${mode}, получено ${readResult}`);
+				this.logger.error(
+					`[${deviceId}] Ошибка подтверждения записи режима: ожидалось ${mode}, получено ${readResult}`,
+				);
 				return false;
 			}
 		} catch (error) {
@@ -979,7 +909,7 @@ export class ModbusService {
 			const writeResult = await this.executeModbusOperation(
 				deviceId,
 				() => this.client.writeRegister(1602, temperature),
-				`запись уставки температуры ${temperature}`
+				`запись уставки температуры ${temperature}`,
 			);
 
 			if (!writeResult) {
@@ -999,7 +929,9 @@ export class ModbusService {
 
 				return true;
 			} else {
-				this.logger.error(`[${deviceId}] Ошибка подтверждения записи уставки: ожидалось ${temperature}, получено ${readResult}`);
+				this.logger.error(
+					`[${deviceId}] Ошибка подтверждения записи уставки: ожидалось ${temperature}, получено ${readResult}`,
+				);
 				return false;
 			}
 		} catch (error) {
@@ -1025,7 +957,7 @@ export class ModbusService {
 			const writeResult = await this.executeModbusOperation(
 				deviceId,
 				() => this.client.writeRegister(1603, speed),
-				`запись скорости вентилятора ${speed}`
+				`запись скорости вентилятора ${speed}`,
 			);
 
 			if (!writeResult) {
@@ -1045,7 +977,9 @@ export class ModbusService {
 
 				return true;
 			} else {
-				this.logger.error(`[${deviceId}] Ошибка подтверждения записи скорости: ожидалось ${speed}, получено ${readResult}`);
+				this.logger.error(
+					`[${deviceId}] Ошибка подтверждения записи скорости: ожидалось ${speed}, получено ${readResult}`,
+				);
 				return false;
 			}
 		} catch (error) {
@@ -1060,7 +994,9 @@ export class ModbusService {
 	async setPowerState(deviceId: number, isOn: boolean): Promise<boolean> {
 		try {
 			const mode = isOn ? 2 : 0; // 2 = обогрев, 0 = выключен
-			this.logger.log(`[${deviceId}] Управление питанием: ${isOn ? 'включить' : 'выключить'} (режим: ${mode})`);
+			this.logger.log(
+				`[${deviceId}] Управление питанием: ${isOn ? 'включить' : 'выключить'} (режим: ${mode})`,
+			);
 
 			return await this.setOperatingMode(deviceId, mode);
 		} catch (error) {
@@ -1085,7 +1021,8 @@ export class ModbusService {
 				nextRequest: this.requestQueue[0] || null,
 			},
 			performance: {
-				successRate: this.masterStats.successfulRequests / Math.max(this.masterStats.totalRequests, 1) * 100,
+				successRate:
+					(this.masterStats.successfulRequests / Math.max(this.masterStats.totalRequests, 1)) * 100,
 				averageResponseTime: this.masterStats.averageResponseTime,
 				lastRequestTime: this.masterStats.lastRequestTime,
 			},
