@@ -19,6 +19,7 @@ export class ModbusService {
 	private isConnected = false;
 	private readonly deviceIds = [5, 6, 7];
 	private devicesState: Map<number, DeviceState>;
+	private isPolling = false; // Флаг для предотвращения одновременного опроса
 
 	constructor(
 		@Inject(forwardRef(() => ModbusGateway))
@@ -97,18 +98,29 @@ export class ModbusService {
 			this.logger.log(`[${deviceId}] Проверка доступности устройства...`);
 			this.client.setID(deviceId);
 
-			// Пытаемся прочитать простой регистр для проверки связи
-			const res: ModbusResponse = await this.client.readHoldingRegisters(1601, 1);
+			// Пытаемся прочитать простой регистр для проверки связи с таймаутом
+			const res: ModbusResponse = (await Promise.race([
+				this.client.readHoldingRegisters(1601, 1),
+				new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000)),
+			])) as ModbusResponse;
+
 			this.logger.log(`[${deviceId}] Устройство доступно, получен ответ: ${res.data[0]}`);
 			return true;
 		} catch (error) {
-			this.logger.error(`[${deviceId}] Устройство недоступно: ${error}`);
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			this.logger.error(`[${deviceId}] Устройство недоступно: ${errorMessage}`);
 			return false;
 		}
 	}
 
 	@Interval(5000)
 	async pollDevices() {
+		// Проверяем, не выполняется ли уже опрос
+		if (this.isPolling) {
+			this.logger.warn('Опрос уже выполняется, пропускаем этот цикл');
+			return;
+		}
+
 		if (!this.isConnected) {
 			await this.connect();
 			if (!this.isConnected) {
@@ -117,102 +129,117 @@ export class ModbusService {
 			}
 		}
 
+		this.isPolling = true; // Устанавливаем флаг
 		const updatedDevices: DeviceState[] = [];
 
-		for (const deviceId of this.deviceIds) {
-			this.logger.log(`=== Начало опроса устройства ${deviceId} ===`);
+		this.logger.log(`Начинаем опрос устройств: ${this.deviceIds.join(', ')}`);
 
-			// Сначала проверяем доступность устройства
-			const isAvailable = await this.checkDeviceAvailability(deviceId);
-			if (!isAvailable) {
-				this.logger.log(`[${deviceId}] Устройство недоступно, пропускаем опрос`);
-				const offlineState = {
-					...this.devicesState.get(deviceId)!,
-					isOnline: false,
-				};
-				this.devicesState.set(deviceId, offlineState);
-				updatedDevices.push(offlineState);
-				continue;
-			}
-
-			try {
-				this.logger.log(`[${deviceId}] Устанавливаем ID устройства...`);
-				this.client.setID(deviceId);
-
-				this.logger.log(`[${deviceId}] Читаем режим работы...`);
-				const mode = await this.getOperatingMode(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем уставку температуры...`);
-				const temp = await this.getTemperatureSetpoint(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем скорость вентилятора...`);
-				const speed = await this.getFanSpeed(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем температуру воздуха...`);
-				const airTemp = await this.getAirTemperature(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем температуру воды...`);
-				const waterTemp = await this.getWaterTemperature(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем статус помпы...`);
-				const pumpStatus = await this.getPumpStatus(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем статус клапана...`);
-				const valveStatus = await this.getValveStatus(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем ошибки...`);
-				const errors = await this.getErrors(deviceId);
-				await this.timeout(200);
-
-				this.logger.log(`[${deviceId}] Читаем состояние защиты...`);
-				const protection = await this.getProtectionState(deviceId);
-				await this.timeout(200);
-
-				const updatedState: DeviceState = {
-					...this.devicesState.get(deviceId)!,
-					isOnline: true,
-					mode: mode !== null ? this.convertMode(mode) : '',
-					isOn: mode !== null && mode > 0,
-					setTemperature: temp || 0,
-					fanSpeed: speed || 0,
-					temperature: airTemp || 0,
-					waterTemperature: waterTemp || 0,
-					pumpStatus: pumpStatus || false,
-					valveStatus: valveStatus || false,
-					errors: errors || this.devicesState.get(deviceId)!.errors,
-					protectionState: protection || 0,
-				};
-
-				this.devicesState.set(deviceId, updatedState);
-				updatedDevices.push(updatedState);
-
+		try {
+			for (const deviceId of this.deviceIds) {
+				this.logger.log(`=== Начало опроса устройства ${deviceId} ===`);
 				this.logger.log(
-					`[${deviceId}] Успешно: режим=${mode}, уставка=${temp}, скорость=${speed}, ` +
-						`темп.воздуха=${airTemp}, темп.воды=${waterTemp}, помпа=${pumpStatus}, клапан=${valveStatus}, ` +
-						`ошибки=${JSON.stringify(errors)}, защита=${protection}`,
+					`[${deviceId}] Обработка устройства ${deviceId} из списка: ${this.deviceIds.join(', ')}`,
 				);
-			} catch (error) {
-				this.logger.error(`[${deviceId}] Критическая ошибка при опросе устройства: ${error}`);
-				const offlineState = {
-					...this.devicesState.get(deviceId)!,
-					isOnline: false,
-				};
-				this.devicesState.set(deviceId, offlineState);
-				updatedDevices.push(offlineState);
+
+				// Сначала проверяем доступность устройства
+				const isAvailable = await this.checkDeviceAvailability(deviceId);
+				if (!isAvailable) {
+					this.logger.log(`[${deviceId}] Устройство недоступно, пропускаем опрос`);
+					const offlineState = {
+						...this.devicesState.get(deviceId)!,
+						isOnline: false,
+					};
+					this.devicesState.set(deviceId, offlineState);
+					updatedDevices.push(offlineState);
+					continue;
+				}
+
+				try {
+					this.logger.log(`[${deviceId}] Устанавливаем ID устройства...`);
+					this.client.setID(deviceId);
+
+					this.logger.log(`[${deviceId}] Читаем режим работы...`);
+					const mode = await this.getOperatingMode(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем уставку температуры...`);
+					const temp = await this.getTemperatureSetpoint(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем скорость вентилятора...`);
+					const speed = await this.getFanSpeed(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем температуру воздуха...`);
+					const airTemp = await this.getAirTemperature(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем температуру воды...`);
+					const waterTemp = await this.getWaterTemperature(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем статус помпы...`);
+					const pumpStatus = await this.getPumpStatus(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем статус клапана...`);
+					const valveStatus = await this.getValveStatus(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем ошибки...`);
+					const errors = await this.getErrors(deviceId);
+					await this.timeout(200);
+
+					this.logger.log(`[${deviceId}] Читаем состояние защиты...`);
+					const protection = await this.getProtectionState(deviceId);
+					await this.timeout(200);
+
+					const updatedState: DeviceState = {
+						...this.devicesState.get(deviceId)!,
+						isOnline: true,
+						mode: mode !== null ? this.convertMode(mode) : '',
+						isOn: mode !== null && mode > 0,
+						setTemperature: temp || 0,
+						fanSpeed: speed || 0,
+						temperature: airTemp || 0,
+						waterTemperature: waterTemp || 0,
+						pumpStatus: pumpStatus || false,
+						valveStatus: valveStatus || false,
+						errors: errors || this.devicesState.get(deviceId)!.errors,
+						protectionState: protection || 0,
+					};
+
+					this.devicesState.set(deviceId, updatedState);
+					updatedDevices.push(updatedState);
+
+					this.logger.log(
+						`[${deviceId}] Успешно: режим=${mode}, уставка=${temp}, скорость=${speed}, ` +
+							`темп.воздуха=${airTemp}, темп.воды=${waterTemp}, помпа=${pumpStatus}, клапан=${valveStatus}, ` +
+							`ошибки=${JSON.stringify(errors)}, защита=${protection}`,
+					);
+				} catch (error) {
+					this.logger.error(`[${deviceId}] Критическая ошибка при опросе устройства: ${error}`);
+					const offlineState = {
+						...this.devicesState.get(deviceId)!,
+						isOnline: false,
+					};
+					this.devicesState.set(deviceId, offlineState);
+					updatedDevices.push(offlineState);
+				}
+
+				this.logger.log(`=== Конец опроса устройства ${deviceId} ===`);
+				await this.timeout(500); // увеличиваем задержку между опросами
 			}
 
-			this.logger.log(`=== Конец опроса устройства ${deviceId} ===`);
-			await this.timeout(500); // увеличиваем задержку между опросами
+			this.logger.log(
+				`Завершен опрос всех устройств. Обновлено: ${updatedDevices.length} устройств`,
+			);
+			this.modbusGateway.broadcastDevicesState(updatedDevices);
+		} catch (error) {
+			this.logger.error(`Критическая ошибка в pollDevices: ${error}`);
+		} finally {
+			this.isPolling = false; // Сбрасываем флаг в любом случае
 		}
-
-		this.modbusGateway.broadcastDevicesState(updatedDevices);
 	}
 
 	// Timeout promise function
