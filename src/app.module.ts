@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
-import { ModbusModule } from './modbus/modbus.module';
+import { MqttModule } from './mqtt/mqtt.module';
+import { AircondGateway } from './mqtt/aircond.gateway';
 
 @Module({
-	imports: [ScheduleModule.forRoot(), ModbusModule],
+	imports: [MqttModule],
+	controllers: [],
+	providers: [AircondGateway],
 })
 export class AppModule {}

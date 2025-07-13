@@ -6,10 +6,10 @@ import {
 	OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, Inject } from '@nestjs/common';
-import { DeviceState, DevicesState } from './device.types';
-// import { ModbusService } from './modbus.service';
-import { AircondMqttService } from '../mqtt/aircond-mqtt.service';
+import { Logger } from '@nestjs/common';
+import { DeviceState, DevicesState } from '../modbus/device.types';
+import { AircondMqttService } from './aircond-mqtt.service';
+import { setAircondGatewayInstance } from './aircond-mqtt.service';
 
 @WebSocketGateway({
 	cors: {
@@ -25,18 +25,16 @@ import { AircondMqttService } from '../mqtt/aircond-mqtt.service';
 	},
 	transports: ['websocket', 'polling'],
 })
-export class ModbusGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class AircondGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	@WebSocketServer()
 	server: Server;
 
-	private readonly logger = new Logger(ModbusGateway.name);
+	private readonly logger = new Logger(AircondGateway.name);
 	private connectedClients = 0;
 
-	constructor(
-		// @Inject(forwardRef(() => ModbusService))
-		// private readonly modbusService: ModbusService,
-		private readonly aircondMqttService: AircondMqttService,
-	) {}
+	constructor(private readonly aircondMqttService: AircondMqttService) {
+		setAircondGatewayInstance(this);
+	}
 
 	handleConnection(client: Socket) {
 		this.connectedClients++;
@@ -60,22 +58,16 @@ export class ModbusGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		client.leave('device-updates');
 	}
 
-	// Обработчик команды включения/выключения кондиционера
 	@SubscribeMessage('command')
 	async handleCommand(client: Socket, payload: { deviceId: string; command: string; value?: any }) {
 		this.logger.log(`Получена команда: ${JSON.stringify(payload)}`);
-
 		try {
-			// Извлекаем ID устройства из строки "AC_5" -> 5
 			const deviceId = parseInt(payload.deviceId.replace('AC_', ''));
-
 			if (isNaN(deviceId)) {
 				client.emit('commandError', { message: 'Неверный ID устройства' });
 				return;
 			}
-
 			let success = false;
-
 			switch (payload.command) {
 				case 'POWER':
 					success = await this.aircondMqttService.setPowerState(deviceId, payload.value);
@@ -90,7 +82,6 @@ export class ModbusGateway implements OnGatewayConnection, OnGatewayDisconnect {
 					client.emit('commandError', { message: `Неизвестная команда: ${payload.command}` });
 					return;
 			}
-
 			if (success) {
 				client.emit('commandSuccess', {
 					deviceId: payload.deviceId,
@@ -111,7 +102,6 @@ export class ModbusGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}
 	}
 
-	// Метод для отправки обновлений состояния всех устройств
 	broadcastDevicesState(devices: DeviceState[]) {
 		const devicesState: DevicesState = {
 			devices,
@@ -119,20 +109,5 @@ export class ModbusGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		};
 		this.server.to('device-updates').emit('devicesState', devicesState);
 		this.logger.log(`Devices state broadcasted to ${this.connectedClients} clients`);
-	}
-
-	// Метод для отправки обновлений состояния одного устройства (для обратной совместимости)
-	broadcastDeviceState(state: DeviceState) {
-		this.server.to('device-updates').emit('deviceState', {
-			...state,
-			clientCount: this.connectedClients,
-		});
-		this.logger.log(`Device state broadcasted to ${this.connectedClients} clients`);
-	}
-
-	// Метод для отправки ошибок
-	broadcastError(error: string) {
-		this.server.to('device-updates').emit('error', { message: error });
-		this.logger.error(`Error broadcasted: ${error}`);
 	}
 }
