@@ -41,24 +41,72 @@ export class AircondMqttService implements OnModuleInit {
 	private readonly logger = new Logger(AircondMqttService.name);
 	private states: Record<number, Partial<DeviceState>> = {};
 	private rawMqtt: Record<number, Record<string, string>> = {};
+	private updateTimeout: NodeJS.Timeout | null = null;
+	private readonly UPDATE_DELAY = 1000; // 1 секунда между обновлениями
+	private pendingUpdates = new Set<number>();
+	private isInitialized = false;
 
 	constructor(private readonly mqttService: MqttService) {}
 
-	onModuleInit() {
+	async onModuleInit() {
+		this.logger.log('🚀 Инициализация AircondMqttService...');
+		
+		// Инициализируем состояния устройств
 		for (const id of [5, 6, 7]) {
 			const cfg: AircondConfig = AC_IDS[id];
-			if (!cfg) throw new Error(`Unknown AC id: ${id}`);
-			const topics = TOPIC_MAP(cfg);
-			Object.entries(topics).forEach(([key, topic]) => {
-				this.mqttService.subscribe(topic, (msgTopic, message) => {
-					this.handleMqttMessage(id, key, message);
-				});
-			});
-			// Инициализируем состояние
+			if (!cfg) {
+				this.logger.error(`❌ Неизвестный ID кондиционера: ${id}`);
+				throw new Error(`Unknown AC id: ${id}`);
+			}
+			
 			this.states[id] = { id: `AC_${id}`, name: `Кондиционер ${id}` };
 			this.rawMqtt[id] = {};
 		}
-		this.logger.log('AircondMqttService подписан на все топики кондиционеров');
+		
+		// Ждем подключения MQTT и подписываемся на топики
+		await this.waitForMqttConnection();
+		await this.subscribeToTopics();
+		
+		this.isInitialized = true;
+		this.logger.log('🎉 AircondMqttService успешно инициализирован');
+		this.logger.log(`📊 Всего устройств: ${Object.keys(this.states).length}`);
+	}
+
+	private async waitForMqttConnection(): Promise<void> {
+		this.logger.log('⏳ Ожидание подключения к MQTT брокеру...');
+		
+		return new Promise((resolve) => {
+			const checkConnection = () => {
+				if (this.mqttService.getConnectionStatus()) {
+					this.logger.log('✅ MQTT подключение установлено');
+					resolve();
+				} else {
+					this.logger.log('⏳ MQTT еще не подключен, ждем...');
+					setTimeout(checkConnection, 1000);
+				}
+			};
+			checkConnection();
+		});
+	}
+
+	private async subscribeToTopics(): Promise<void> {
+		this.logger.log('📡 Подписка на MQTT топики...');
+		
+		for (const id of [5, 6, 7]) {
+			const cfg: AircondConfig = AC_IDS[id];
+			this.logger.log(`📡 Настройка кондиционера AC_${id} с брокером ${cfg.broker}`);
+			const topics = TOPIC_MAP(cfg);
+			
+			Object.entries(topics).forEach(([key, topic]) => {
+				this.logger.log(`🔔 Подписка на топик: ${topic} (${key})`);
+				this.mqttService.subscribe(topic, (msgTopic, message) => {
+					this.logger.log(`📨 Получено MQTT сообщение для AC_${id}: ${key} = ${message}`);
+					this.handleMqttMessage(id, key, message);
+				});
+			});
+			
+			this.logger.log(`✅ Кондиционер AC_${id} инициализирован`);
+		}
 	}
 
 	private handleMqttMessage(id: number, key: string, value: string) {
@@ -66,6 +114,7 @@ export class AircondMqttService implements OnModuleInit {
 		const state = this.states[id] || { id: `AC_${id}`, name: `Кондиционер ${id}` };
 		let num: number | undefined = undefined;
 		if (key === 'valveStatus') num = Number(value);
+		
 		// Парсим значения по ключу
 		switch (key) {
 			case 'mode':
@@ -92,12 +141,32 @@ export class AircondMqttService implements OnModuleInit {
 				break;
 		}
 		state.isOnline = true;
+		
 		// Сохраняем сырое значение
 		if (!this.rawMqtt[id]) this.rawMqtt[id] = {};
 		this.rawMqtt[id][key] = value;
-		// TODO: обработка ошибок и protectionState при необходимости
+		
 		this.states[id] = state;
-		this.pushToFrontend();
+		
+		// Добавляем в список ожидающих обновлений
+		this.pendingUpdates.add(id);
+		
+		// Запускаем throttled обновление
+		this.scheduleUpdate();
+	}
+
+	private scheduleUpdate() {
+		// Если уже есть запланированное обновление, отменяем его
+		if (this.updateTimeout) {
+			clearTimeout(this.updateTimeout);
+		}
+
+		// Планируем новое обновление через задержку
+		this.updateTimeout = setTimeout(() => {
+			this.pushToFrontend();
+			this.pendingUpdates.clear();
+			this.updateTimeout = null;
+		}, this.UPDATE_DELAY);
 	}
 
 	private parseMode(val: number): string {
@@ -107,6 +176,11 @@ export class AircondMqttService implements OnModuleInit {
 	}
 
 	private pushToFrontend() {
+		if (!this.isInitialized) {
+			this.logger.warn('⚠️ Попытка отправить данные до инициализации сервиса');
+			return;
+		}
+		
 		const devices: DeviceState[] = Object.values(this.states).map((s) => ({
 			id: s.id!,
 			name: s.name!,
@@ -129,28 +203,57 @@ export class AircondMqttService implements OnModuleInit {
 			protectionState: 0,
 			rawMqtt: this.rawMqtt[Number(s.id?.replace('AC_', ''))] || {},
 		}));
+		
 		if (aircondGatewayInstance) {
+			this.logger.log(`[WEBSOCKET] Отправка обновлений для ${devices.length} устройств`);
 			aircondGatewayInstance.broadcastDevicesState(devices);
+		} else {
+			this.logger.warn('⚠️ AircondGateway не инициализирован');
 		}
+	}
+
+	// Метод для принудительного обновления (для команд управления)
+	public forceUpdate() {
+		if (this.updateTimeout) {
+			clearTimeout(this.updateTimeout);
+			this.updateTimeout = null;
+		}
+		this.pushToFrontend();
+		this.pendingUpdates.clear();
 	}
 
 	async setPowerState(id: number, isOn: boolean): Promise<boolean> {
 		const cfg = AC_IDS[id];
 		const topic = CMD_TOPIC_MAP(cfg).mode;
 		const value = isOn ? 2 : 0;
-		return this.publishCommand(`${topic}/on`, value);
+		const success = await this.publishCommand(`${topic}/on`, value);
+		if (success) {
+			// Принудительное обновление после команды управления
+			setTimeout(() => this.forceUpdate(), 500);
+		}
+		return success;
 	}
 
 	async setTemperatureSetpoint(id: number, temperature: number): Promise<boolean> {
 		const cfg = AC_IDS[id];
 		const topic = CMD_TOPIC_MAP(cfg).setpoint;
-		return this.publishCommand(`${topic}/on`, temperature);
+		const success = await this.publishCommand(`${topic}/on`, temperature);
+		if (success) {
+			// Принудительное обновление после команды управления
+			setTimeout(() => this.forceUpdate(), 500);
+		}
+		return success;
 	}
 
 	async setFanSpeed(id: number, speed: number): Promise<boolean> {
 		const cfg = AC_IDS[id];
 		const topic = CMD_TOPIC_MAP(cfg).fanSpeed;
-		return this.publishCommand(`${topic}/on`, speed);
+		const success = await this.publishCommand(`${topic}/on`, speed);
+		if (success) {
+			// Принудительное обновление после команды управления
+			setTimeout(() => this.forceUpdate(), 500);
+		}
+		return success;
 	}
 
 	private publishCommand(topic: string, value: number): Promise<boolean> {

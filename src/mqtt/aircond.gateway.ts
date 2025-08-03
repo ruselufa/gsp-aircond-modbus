@@ -107,7 +107,14 @@ export class AircondGateway implements OnGatewayConnection, OnGatewayDisconnect 
 			devices,
 			clientCount: this.connectedClients,
 		};
+		
+		this.logger.log(`[WEBSOCKET] Отправка состояния ${devices.length} устройств к ${this.connectedClients} клиентам`);
+		
 		this.server.to('device-updates').emit('devicesState', devicesState);
-		this.logger.log(`Devices state broadcasted to ${this.connectedClients} clients`);
+		
+		// Логируем детали для отладки
+		devices.forEach(device => {
+			this.logger.debug(`[DEVICE] ${device.id}: temp=${device.temperature}°C, setpoint=${device.setTemperature}°C, power=${device.isOn ? 'ON' : 'OFF'}`);
+		});
 	}
 }
