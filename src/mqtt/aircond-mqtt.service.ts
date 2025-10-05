@@ -212,6 +212,32 @@ export class AircondMqttService implements OnModuleInit {
 		}
 	}
 
+	// Немедленный снимок текущего состояния (даже до полной инициализации)
+	public getSnapshotDevices(): DeviceState[] {
+		return Object.values(this.states).map((s) => ({
+			id: s.id!,
+			name: s.name!,
+			isOnline: s.isOnline ?? false,
+			mode: s.mode ?? '',
+			isOn: s.isOn ?? false,
+			setTemperature: s.setTemperature ?? 0,
+			fanSpeed: s.fanSpeed ?? 0,
+			temperature: s.temperature ?? 0,
+			waterTemperature: s.waterTemperature ?? 0,
+			pumpStatus: s.pumpStatus ?? false,
+			valveStatus: s.valveStatus ?? false,
+			errors: {
+				tempSensorError: false,
+				waterTempSensor1Error: false,
+				waterTempSensor2Error: false,
+				fanSpeedError: false,
+				pumpError: false,
+			},
+			protectionState: 0,
+			rawMqtt: this.rawMqtt[Number(s.id?.replace('AC_', ''))] || {},
+		}));
+	}
+
 	// Метод для принудительного обновления (для команд управления)
 	public forceUpdate() {
 		if (this.updateTimeout) {

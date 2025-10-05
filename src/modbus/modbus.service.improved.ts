@@ -61,7 +61,7 @@ export class ModbusServiceImproved {
 	private getInitialState(deviceId: number): DeviceState {
 		return {
 			id: `AC_${deviceId}`,
-			name: `Кондиционер ${deviceId}`,
+			name: `Кондиционер 5${deviceId}`,
 			isOnline: false,
 			mode: '',
 			isOn: false,

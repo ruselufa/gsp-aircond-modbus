@@ -39,6 +39,21 @@ export class AircondGateway implements OnGatewayConnection, OnGatewayDisconnect 
 	handleConnection(client: Socket) {
 		this.connectedClients++;
 		this.logger.log(`Client connected. Total clients: ${this.connectedClients}`);
+
+	// Сразу присоединяем и отправляем текущее известное состояние (ускорение первого показа)
+	client.join('device-updates');
+	try {
+		const snapshot = this.aircondMqttService.getSnapshotDevices();
+		if (snapshot && snapshot.length > 0) {
+			const devicesState: DevicesState = {
+				devices: snapshot,
+				clientCount: this.connectedClients,
+			};
+			client.emit('devicesState', devicesState);
+		}
+	} catch (e) {
+		this.logger.warn(`Не удалось отправить мгновенный снимок состояния: ${e}`);
+	}
 	}
 
 	handleDisconnect(client: Socket) {
