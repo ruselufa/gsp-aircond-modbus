@@ -1,0 +1,18 @@
+services:
+  gsp-aircond-modbus:
+    container_name: gsp-aircond-modbus
+    build: .
+    network_mode: host
+    environment:
+      - PORT=${PORT:-3001}
+    # ports:
+    #   - "3001:3001"
+    restart: unless-stopped
+    # networks:
+    #   - gsp-net
+
+networks:
+  gsp-net:
+    external: true
+
+

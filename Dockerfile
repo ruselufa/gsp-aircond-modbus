@@ -2,8 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm ci --omit=dev
+COPY package.json package-lock.json ./
+# Используем полную установку, чтобы были dev-зависимости для сборки
+RUN npm ci
 
 COPY . .
 
